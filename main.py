@@ -2,13 +2,17 @@ import asyncio
 import aiohttp
 import aiofiles
 from aiohttp import web
-from PIL import Image
+from PIL import Image, ImageDraw
+import numpy as np
 import json
 import os.path
 import time
 from typing import Dict, List, Tuple
 import logging
 from datetime import datetime, timedelta
+from collections import deque
+import colorsys
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -16,8 +20,10 @@ logger = logging.getLogger(__name__)
 # Default configuration
 PORT = 8000
 MAX_CONCURRENT_DOWNLOADS = 10
-UPDATE_INTERVAL = 50  # Update every 10 seconds
-NUMBER_OF_ACCOUNTS=3
+UPDATE_INTERVAL = 50  # Update every 50 seconds
+NUMBER_OF_ACCOUNTS = 3
+HEATMAP_HISTORY_SIZE = 100  # Track last 100 updates
+
 # Helper function to add CORS headers
 def add_cors_headers(response: web.Response) -> web.Response:
     """Add CORS headers to a response"""
@@ -25,6 +31,7 @@ def add_cors_headers(response: web.Response) -> web.Response:
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
     return response
+
 def load_config():
     """Load configuration from config.json or use defaults"""
     try:
@@ -34,7 +41,8 @@ def load_config():
                 return {
                     'port': config.get('port', PORT),
                     'max_concurrent_downloads': config.get('max_concurrent_downloads', MAX_CONCURRENT_DOWNLOADS),
-                    'update_interval': config.get('update_interval', UPDATE_INTERVAL)
+                    'update_interval': config.get('update_interval', UPDATE_INTERVAL),
+                    'heatmap_history_size': config.get('heatmap_history_size', HEATMAP_HISTORY_SIZE)
                 }
     except Exception as e:
         logger.warning(f"Could not load server_config.json, using defaults: {e}")
@@ -42,8 +50,115 @@ def load_config():
     return {
         'port': PORT,
         'max_concurrent_downloads': MAX_CONCURRENT_DOWNLOADS,
-        'update_interval': UPDATE_INTERVAL
+        'update_interval': UPDATE_INTERVAL,
+        'heatmap_history_size': HEATMAP_HISTORY_SIZE
     }
+
+class HeatmapTracker:
+    def __init__(self, history_size: int = HEATMAP_HISTORY_SIZE):
+        # Track pixel changes for each tile
+        # Format: {tile_key: deque of change_maps for last N updates}
+        self.pixel_history: Dict[str, deque] = {}
+        self.history_size = history_size
+        
+    def record_changes(self, tile_key: str, changed_pixels: List[Tuple[Tuple[int, int], Tuple]]):
+        """Record pixel changes for a tile"""
+        if tile_key not in self.pixel_history:
+            self.pixel_history[tile_key] = deque(maxlen=self.history_size)
+        
+        # Create a change map for this update
+        change_map = {}
+        for (x, y), color in changed_pixels:
+            change_map[(x, y)] = 1  # Mark pixel as changed
+        
+        self.pixel_history[tile_key].append(change_map)
+        
+    def generate_heatmap(self, tile_key: str, width: int = 1000, height: int = 1000) -> np.ndarray:
+        """Generate heatmap array from pixel change history"""
+        if tile_key not in self.pixel_history or not self.pixel_history[tile_key]:
+            return np.zeros((height, width), dtype=np.float32)
+        
+        # Initialize heatmap array
+        heatmap = np.zeros((height, width), dtype=np.float32)
+        
+        # Aggregate changes across all recorded updates
+        for change_map in self.pixel_history[tile_key]:
+            for (x, y) in change_map:
+                if 0 <= x < width and 0 <= y < height:
+                    heatmap[y, x] += 1  # Note: numpy uses [y, x] indexing
+        
+        return heatmap
+    
+    def create_heatmap_image(self, tile_key: str, width: int = 1000, height: int = 1000) -> Image.Image:
+        """Create a heatmap image from change data"""
+        heatmap_array = self.generate_heatmap(tile_key, width, height)
+        
+        # Normalize to 0-255 range
+        max_changes = heatmap_array.max()
+        if max_changes == 0:
+            # No changes, return black image
+            return Image.fromarray(np.zeros((height, width, 4), dtype=np.uint8), 'RGBA')
+        
+        normalized = (heatmap_array / max_changes * 255).astype(np.uint8)
+        
+        # Create RGBA image with heat colormap
+        rgba_array = np.zeros((height, width, 4), dtype=np.uint8)
+        
+        for y in range(height):
+            for x in range(width):
+                intensity = normalized[y, x]
+                if intensity > 0:
+                    # Convert intensity to heat colors (blue -> green -> yellow -> red)
+                    hue = (1.0 - intensity / 255.0) * 0.75  # 0.75 = blue, 0 = red
+                    saturation = 1.0
+                    value = min(1.0, intensity / 255.0 + 0.3)  # Ensure some visibility
+                    
+                    rgb = colorsys.hsv_to_rgb(hue, saturation, value)
+                    rgba_array[y, x] = [
+                        int(rgb[0] * 255),
+                        int(rgb[1] * 255),
+                        int(rgb[2] * 255),
+                        min(255, intensity + 50)  # Alpha based on intensity
+                    ]
+        
+        return Image.fromarray(rgba_array, 'RGBA')
+    
+    async def save_heatmap(self, tile_id: str, tile_num: str, width: int = 1000, height: int = 1000):
+        """Save heatmap image to file"""
+        tile_key = f"{tile_id}_{tile_num}"
+        heatmap_img = self.create_heatmap_image(tile_key, width, height)
+        
+        # Create heatmap directory and save
+        heatmap_dir = 'heatmap'
+        os.makedirs(heatmap_dir, exist_ok=True)
+        
+        heatmap_path = f'{heatmap_dir}/{tile_id}.{tile_num}heatmap.png'
+        heatmap_img.save(heatmap_path, 'PNG', optimize=True)
+        
+        logger.info(f"Saved heatmap for tile {tile_id}/{tile_num} to {heatmap_path}")
+        
+    def get_stats(self, tile_key: str) -> Dict:
+        """Get heatmap statistics for a tile"""
+        if tile_key not in self.pixel_history:
+            return {'updates_tracked': 0, 'total_changes': 0, 'max_pixel_changes': 0}
+        
+        updates_tracked = len(self.pixel_history[tile_key])
+        total_changes = sum(len(change_map) for change_map in self.pixel_history[tile_key])
+        
+        # Get most changed pixel
+        pixel_counts = {}
+        for change_map in self.pixel_history[tile_key]:
+            for pixel in change_map:
+                pixel_counts[pixel] = pixel_counts.get(pixel, 0) + 1
+        
+        max_pixel_changes = max(pixel_counts.values()) if pixel_counts else 0
+        
+        return {
+            'updates_tracked': updates_tracked,
+            'total_changes': total_changes,
+            'max_pixel_changes': max_pixel_changes,
+            'unique_pixels_changed': len(pixel_counts)
+        }
 
 class TileCache:
     def __init__(self):
@@ -74,9 +189,12 @@ class TileCache:
             del self.cache[key]
 
 class TileProcessor:
-    def __init__(self):
+    def __init__(self, heatmap_history_size: int = HEATMAP_HISTORY_SIZE):
         self.cache = TileCache()
+        self.heatmap_tracker = HeatmapTracker(heatmap_history_size)
         self.semaphore = asyncio.Semaphore(MAX_CONCURRENT_DOWNLOADS)
+        # Store previous tile states to detect actual changes
+        self.previous_tiles: Dict[str, Image.Image] = {}
         
     async def download_tile(self, session: aiohttp.ClientSession, tile_id: str, tile_num: str) -> bytes:
         """Download tile image with rate limiting"""
@@ -102,8 +220,8 @@ class TileProcessor:
         async with aiofiles.open(filepath, 'wb') as f:
             await f.write(data)
     
-    def process_tile_diff(self, base_path: str, blueprint_path: str) -> Tuple[bool, List, int]:
-        """Process tile differences with blueprint overlay and pink highlighting"""
+    async def process_tile_diff(self, base_path: str, blueprint_path: str, tile_id: str, tile_num: str) -> Tuple[bool, List, int]:
+        """Process tile differences with blueprint overlay, pink highlighting, and heatmap tracking of actual changes"""
         try:
             base_img = Image.open(base_path).convert('RGBA')
             blueprint_img = Image.open(blueprint_path).convert('RGBA')
@@ -113,12 +231,43 @@ class TileProcessor:
             blueprint_array = blueprint_img.load()
             
             width, height = base_img.size
-            diff_pixels = []
+            diff_pixels = []  # Blueprint vs current differences
+            actual_changes = []  # Actual pixel changes since last update
             missing_count = 0
             xmin, xmax = 999, 0
             ymin, ymax = 999, 0
             
-            # First pass: find differences and boundaries
+            tile_key = f"{tile_id}_{tile_num}"
+            
+            # Check for actual changes by comparing with previous state
+            if tile_key in self.previous_tiles:
+                prev_img = self.previous_tiles[tile_key]
+                prev_array = prev_img.load()
+                
+                # Compare current image with previous image to find actual changes
+                for x in range(width):
+                    for y in range(height):
+                        current_pixel = base_array[x, y]
+                        prev_pixel = prev_array[x, y]
+                        
+                        # If pixel actually changed between updates
+                        if current_pixel != prev_pixel:
+                            actual_changes.append(((x, y), current_pixel))
+            
+            # Store current image for next comparison
+            self.previous_tiles[tile_key] = base_img.copy()
+            
+            # Record actual changes in heatmap tracker (not blueprint differences)
+            if actual_changes:
+                self.heatmap_tracker.record_changes(tile_key, actual_changes)
+                # Generate and save heatmap when there are actual changes
+                await self.heatmap_tracker.save_heatmap(tile_id, tile_num, width, height)
+                logger.info(f"Recorded {len(actual_changes)} actual pixel changes for tile {tile_id}/{tile_num}")
+            else:
+                # No actual changes, but still record empty update for tracking
+                self.heatmap_tracker.record_changes(tile_key, [])
+            
+            # Still do the blueprint comparison for the overlay functionality
             for x in range(width):
                 for y in range(height):
                     bp_pixel = blueprint_array[x, y]
@@ -148,7 +297,7 @@ class TileProcessor:
                 
                 # Save modified image
                 base_img.save(base_path, 'PNG', optimize=True)
-                
+            
             return len(diff_pixels) > 0, diff_pixels, missing_count
             
         except Exception as e:
@@ -179,17 +328,23 @@ class TileProcessor:
             os.makedirs(os.path.dirname(blueprint_path), exist_ok=True)
             await self.save_file(blueprint_path, img_data)
         
-        # Process differences
-        has_diff, diff_pixels, missing_count = self.process_tile_diff(base_path, blueprint_path)
+        # Process differences (now includes heatmap tracking)
+        has_diff, diff_pixels, missing_count = await self.process_tile_diff(base_path, blueprint_path, tile_id, tile_num)
         
-        logger.info(f"Tile {tile_id}/{tile_num}: {missing_count} missing pixels, {len(diff_pixels)} differences. Estimated needed time:{diff_pixels/NUMBER_OF_ACCOUNTS/120}h")
+        # Get heatmap stats
+        heatmap_stats = self.heatmap_tracker.get_stats(tile_key)
+        
+        logger.info(f"Tile {tile_id}/{tile_num}: {missing_count} missing pixels, {len(diff_pixels)} differences. "
+                   f"Estimated needed time: {len(diff_pixels)/NUMBER_OF_ACCOUNTS/120:.2f}h. "
+                   f"Heatmap: {heatmap_stats['updates_tracked']} updates tracked")
         
         result = {
             'tile_id': tile_id,
             'tile_num': tile_num,
             'missing_pixels': missing_count,
             'has_differences': has_diff,
-            'diff_count': len(diff_pixels)
+            'diff_count': len(diff_pixels),
+            'heatmap_stats': heatmap_stats
         }
         
         # Cache the result
@@ -239,18 +394,27 @@ class TileProcessor:
                 os.makedirs(os.path.dirname(blueprint_path), exist_ok=True)
                 await self.save_file(blueprint_path, img_data)
             
-            # Process differences
-            has_diff, diff_pixels, missing_count = self.process_tile_diff(base_path, blueprint_path)
-            estimate=len(diff_pixels)/NUMBER_OF_ACCOUNTS/120
+            # Process differences (includes heatmap tracking)
+            has_diff, diff_pixels, missing_count = await self.process_tile_diff(base_path, blueprint_path, tile_id, tile_num)
+            estimate = len(diff_pixels)/NUMBER_OF_ACCOUNTS/120
             now = datetime.now()
-            logger.info(f"Fresh update - Tile {tile_id}/{tile_num}: {missing_count} missing pixels, {len(diff_pixels)} differences. Estimated needed time:{estimate}h. Estimated datetime at finish: {now + timedelta(hours=estimate)}")
+            
+            # Get heatmap stats
+            heatmap_stats = self.heatmap_tracker.get_stats(tile_key)
+            
+            logger.info(f"Fresh update - Tile {tile_id}/{tile_num}: {missing_count} missing pixels, "
+                       f"{len(diff_pixels)} differences. Estimated needed time: {estimate:.2f}h. "
+                       f"Estimated datetime at finish: {now + timedelta(hours=estimate)}. "
+                       f"Heatmap: {heatmap_stats['updates_tracked']} updates, "
+                       f"{heatmap_stats['total_changes']} total changes")
             
             result = {
                 'tile_id': tile_id,
                 'tile_num': tile_num,
                 'missing_pixels': missing_count,
                 'has_differences': has_diff,
-                'diff_count': len(diff_pixels)
+                'diff_count': len(diff_pixels),
+                'heatmap_stats': heatmap_stats
             }
             
             # Update cache with fresh result
@@ -283,11 +447,9 @@ class TileProcessor:
             logger.error(f"Error force updating tile {tile_path}: {e}")
             return False
 
-
-
 class WebServer:
-    def __init__(self):
-        self.processor = TileProcessor()
+    def __init__(self, heatmap_history_size: int = HEATMAP_HISTORY_SIZE):
+        self.processor = TileProcessor(heatmap_history_size)
         self.app = web.Application()
         self.last_update_time = 0
         self.next_update_time = 0
@@ -299,15 +461,63 @@ class WebServer:
         self.app.router.add_get('/', self.index_handler)
         self.app.router.add_get('/config.json', self.config_handler)
         self.app.router.add_get('/files/{path:.*}', self.files_handler)
+        self.app.router.add_get('/heatmap/{path:.*}', self.heatmap_handler)  # New heatmap route
         self.app.router.add_post('/update', self.update_handler)
         self.app.router.add_get('/status', self.status_handler)
+        self.app.router.add_get('/heatmap-stats', self.heatmap_stats_handler)  # New stats route
         self.app.router.add_options('/{path:.*}', self.options_handler)
+    
+    async def heatmap_handler(self, request):
+        """Serve heatmap files"""
+        path = request.match_info['path']
+        file_path = f'heatmap/{path}'
         
-        # CORS headers are now added directly to each handler
+        logger.debug(f"Serving heatmap: {file_path}")
+        
+        if not os.path.exists(file_path):
+            logger.warning(f"Heatmap not found: {file_path}")
+            response = web.Response(status=404)
+            return add_cors_headers(response)
+        
+        try:
+            response = web.FileResponse(file_path)
+            # Cache heatmaps for a bit longer since they update less frequently
+            response.headers['Cache-Control'] = 'public, max-age=30'
+            response.headers['Content-Type'] = 'image/png'
+            
+            logger.info(f"Served heatmap {file_path}")
+            return add_cors_headers(response)
+            
+        except Exception as e:
+            logger.error(f"Error serving heatmap {file_path}: {e}")
+            response = web.Response(status=500, text="Internal server error")
+            return add_cors_headers(response)
+    
+    async def heatmap_stats_handler(self, request):
+        """Provide heatmap statistics for all tiles"""
+        try:
+            stats = {}
+            for tile_key in self.processor.heatmap_tracker.pixel_history:
+                stats[tile_key] = self.processor.heatmap_tracker.get_stats(tile_key)
+            
+            response = web.json_response({
+                'heatmap_stats': stats,
+                'history_size': self.processor.heatmap_tracker.history_size,
+                'timestamp': time.time()
+            })
+            return add_cors_headers(response)
+            
+        except Exception as e:
+            logger.error(f"Heatmap stats error: {e}")
+            response = web.json_response({
+                'success': False,
+                'error': str(e)
+            }, status=500)
+            return add_cors_headers(response)
     
     async def index_handler(self, request):
         """Serve index page"""
-        response = web.Response(text="wPlace Overlay Server Running", content_type='text/plain')
+        response = web.Response(text="wPlace Overlay Server Running with Heatmap Tracking", content_type='text/plain')
         return add_cors_headers(response)
     
     async def config_handler(self, request):
@@ -371,7 +581,6 @@ class WebServer:
             response = web.FileResponse(file_path)
             
             # Very short cache for tile images to ensure fresh updates
-            # Since we update every 10 seconds, cache for only 5 seconds
             response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
             response.headers['Pragma'] = 'no-cache'
             response.headers['Expires'] = '0'
@@ -397,6 +606,10 @@ class WebServer:
             time_since_last = current_time - self.last_update_time if self.last_update_time > 0 else None
             time_until_next = self.next_update_time - current_time if self.next_update_time > current_time else 0
             
+            # Get heatmap summary stats
+            total_tiles_tracked = len(self.processor.heatmap_tracker.pixel_history)
+            total_updates_tracked = sum(len(history) for history in self.processor.heatmap_tracker.pixel_history.values())
+            
             status_data = {
                 'server_time': current_time,
                 'last_update': self.last_update_time,
@@ -405,7 +618,10 @@ class WebServer:
                 'update_count': self.update_count,
                 'update_interval': UPDATE_INTERVAL,
                 'cache_size': len(self.processor.cache.cache),
-                'uptime': current_time - self.start_time if hasattr(self, 'start_time') else None
+                'uptime': current_time - self.start_time if hasattr(self, 'start_time') else None,
+                'heatmap_tiles_tracked': total_tiles_tracked,
+                'heatmap_total_updates': total_updates_tracked,
+                'heatmap_history_size': self.processor.heatmap_tracker.history_size
             }
             
             response = web.json_response(status_data)
@@ -447,7 +663,10 @@ class WebServer:
 
 async def background_updater(server: WebServer):
     """Background task to periodically update tiles"""
-    logger.info(f"Background updater started - will update every {UPDATE_INTERVAL} seconds")
+    config = load_config()
+    update_interval = config['update_interval']
+    
+    logger.info(f"Background updater started - will update every {update_interval} seconds")
     
     # Wait a bit before first update to let server fully start
     await asyncio.sleep(10)
@@ -465,19 +684,22 @@ async def background_updater(server: WebServer):
             
             # Update server tracking
             server.last_update_time = time.time()
-            server.next_update_time = server.last_update_time + UPDATE_INTERVAL
+            server.next_update_time = server.last_update_time + update_interval
             server.update_count += 1
             
             update_duration = time.time() - start_time
             
             # Log summary of what happened
             total_missing = sum(r.get('missing_pixels', 0) for r in results if r.get('error') is None)
+            total_heatmap_changes = sum(r.get('heatmap_stats', {}).get('total_changes', 0) for r in results if r.get('error') is None)
+            
             logger.info(f"Background update completed in {update_duration:.2f}s (total updates: {server.update_count})")
             logger.info(f"Processed {len(results)} tiles, total missing pixels: {total_missing}")
+            logger.info(f"Heatmap tracking: {total_heatmap_changes} total changes across all tiles")
             
             # Calculate wait time to maintain consistent intervals
-            wait_time = max(0, UPDATE_INTERVAL - update_duration)
-            logger.info(f"Waiting {wait_time:.1f}s until next update (target: every {UPDATE_INTERVAL}s)")
+            wait_time = max(0, update_interval - update_duration)
+            logger.info(f"Waiting {wait_time:.1f}s until next update (target: every {update_interval}s)")
             await asyncio.sleep(wait_time)
             
         except Exception as e:
@@ -490,10 +712,11 @@ async def main():
     try:
         # Load configuration
         config = load_config()
-        logger.info(f"Loaded configuration: update_interval={config['update_interval']}s, port={config['port']}")
+        logger.info(f"Loaded configuration: update_interval={config['update_interval']}s, "
+                   f"port={config['port']}, heatmap_history_size={config['heatmap_history_size']}")
         
         logger.info("Initializing WebServer...")
-        server = WebServer()
+        server = WebServer(config['heatmap_history_size'])
         logger.info("WebServer initialized successfully")
         
         # Start background updater
@@ -525,7 +748,7 @@ async def main():
 
 if __name__ == "__main__":
     try:
-        logger.info("Starting wPlace Overlay Server...")
+        logger.info("Starting wPlace Overlay Server with Heatmap Tracking...")
         asyncio.run(main())
     except KeyboardInterrupt:
         logger.info("Server stopped by user")
