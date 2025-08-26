@@ -1,0 +1,1308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pixel Art Generator</title>
+    <style>
+        /* --- Basic Setup & Fonts --- */
+        :root {
+            --bg-main: #000000;
+            --bg-card: #1a1a1a;
+            --text-primary: #ffffff;
+            --text-secondary: #888888;
+            --text-light: #666666;
+            --border-color: #333333;
+            --button-main-bg: #ffffff;
+            --button-main-text: #000000;
+            --button-main-hover-bg: #cccccc;
+            --button-outline-bg: transparent;
+            --button-outline-text: #ffffff;
+            --button-outline-border: #888888;
+            --button-outline-hover-bg: #333333;
+            --shadow: 0 4px 6px -1px rgba(255, 255, 255, 0.1), 0 2px 4px -2px rgba(255, 255, 255, 0.1);
+            --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+            --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        }
+
+        body {
+            font-family: var(--font-sans);
+            background-color: var(--bg-main);
+            color: var(--text-primary);
+            margin: 0;
+            padding: 0;
+            line-height: 1.5;
+        }
+
+        /* --- Layout --- */
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 1.5rem 1rem;
+        }
+
+        header {
+            background-color: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--border-color);
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        header .container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 1rem;
+            padding-bottom: 1rem;
+        }
+
+        main {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 1.5rem;
+            align-items: start;
+        }
+
+        @media (min-width: 768px) {
+            main {
+                grid-template-columns: 1fr 1fr;
+            }
+            .result-column {
+                position: sticky;
+                top: 5.5rem; /* Header height + margin */
+            }
+        }
+        
+        footer {
+            text-align: center;
+            padding: 2rem 1rem;
+            font-size: 0.8rem;
+            color: var(--text-light);
+        }
+
+        /* --- Components --- */
+        .card {
+            background-color: var(--bg-card);
+            border-radius: 1rem;
+            box-shadow: var(--shadow);
+            padding: 0; /* Padding will be in the content div */
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1.5rem 1.5rem 0.5rem 1.5rem;
+            cursor: pointer;
+            user-select: none;
+            border-bottom: 1px solid var(--border-color);
+            transition: padding-bottom 0.2s ease;
+        }
+        
+        .card-header.collapsed {
+            border-bottom: none;
+            padding-bottom: 1.5rem;
+        }
+
+        .card-content {
+            padding: 0 1.5rem 1.5rem 1.5rem;
+            overflow: hidden;
+            transition: max-height 0.3s ease, padding 0.3s ease;
+            max-height: 1000px; /* A value larger than the content to enable transition */
+        }
+        
+        .card-content.collapsed {
+            max-height: 0;
+            padding-top: 0;
+            padding-bottom: 0;
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin: 0;
+        }
+        
+        h2 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin: 0;
+        }
+        
+        .toggle-button {
+            background: none;
+            border: none;
+            color: var(--text-primary);
+            font-size: 1.25rem;
+            cursor: pointer;
+            transition: transform 0.3s ease;
+        }
+        .card-content.collapsed + .card-header .toggle-button {
+            transform: rotate(-90deg);
+        }
+
+        p.description {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+        }
+
+        .button {
+            display: inline-block;
+            padding: 0.6rem 1.2rem;
+            border: none;
+            border-radius: 0.75rem;
+            font-weight: 600;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+            text-align: center;
+        }
+
+        .button-primary {
+            background-color: var(--button-main-bg);
+            color: var(--button-main-text);
+        }
+        .button-primary:hover {
+            background-color: var(--button-main-hover-bg);
+        }
+        
+        .button-secondary {
+            background-color: var(--bg-card);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+        }
+        .button-secondary:hover {
+            background-color: #333333;
+        }
+
+        .button-outline {
+            background-color: var(--button-outline-bg);
+            color: var(--button-outline-text);
+            border: 1px solid var(--button-outline-border);
+        }
+        .button-outline:hover {
+            background-color: var(--button-outline-hover-bg);
+        }
+
+        /* --- Form Elements --- */
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .form-group label, .form-group .label-text {
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+        
+        .form-group .label-text span {
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .form-group input[type="file"],
+        .form-group textarea,
+        .form-group select,
+        .form-group input[type="number"] {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid var(--border-color);
+            border-radius: 0.5rem;
+            font-size: 1rem;
+            background-color: var(--bg-card);
+            color: var(--text-primary);
+        }
+        
+        .form-group input[type="file"] {
+            padding: 0.5rem;
+        }
+
+        .form-group textarea {
+            font-family: var(--font-mono);
+            font-size: 0.9rem;
+            resize: vertical;
+        }
+        
+        .form-group input[type="range"] {
+            width: 100%;
+        }
+        
+        .color-group {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        .color-group input[type="color"] {
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            width: 40px;
+            height: 40px;
+            background-color: transparent;
+            border: none;
+            cursor: pointer;
+        }
+        .color-group input[type="color"]::-webkit-color-swatch {
+            border-radius: 8px;
+            border: 1px solid var(--text-primary);
+        }
+        .color-group input[type="color"]::-moz-color-swatch {
+            border-radius: 8px;
+            border: 1px solid var(--text-primary);
+        }
+        .color-group .color-value {
+            font-family: var(--font-mono);
+        }
+
+        /* --- Palette & Canvases --- */
+        #palette-display {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            align-items: center;
+        }
+
+        .palette-color {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background-color: #374151;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.5rem;
+            background-color: var(--border-color);
+        }
+
+        .palette-swatch {
+            width: 1.5rem;
+            height: 1.5rem;
+            border-radius: 0.25rem;
+            border: 1px solid var(--text-primary);
+        }
+
+        .palette-hex {
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+        }
+
+        .button-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+
+        canvas {
+            width: 100%;
+            border: 1px solid var(--border-color);
+            border-radius: 0.5rem;
+            background-color: var(--bg-card);
+            image-rendering: pixelated;
+            image-rendering: -moz-crisp-edges;
+            image-rendering: crisp-edges;
+        }
+        
+        #status {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+        }
+        
+        .how-it-works ol {
+            padding-left: 1.5rem;
+            margin: 0;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+        .how-it-works li {
+            margin-bottom: 0.5rem;
+        }
+        .how-it-works em {
+            font-style: italic;
+            color: var(--text-primary);
+        }
+        
+        hr {
+            border-color: var(--border-color);
+            border-top-width: 1px;
+            margin: 0.5rem 0;
+        }
+
+        .image-info {
+            font-size: 0.8rem;
+            color: var(--text-light);
+            text-align: center;
+            margin-top: 0.5rem;
+        }
+        
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="container">
+            <h1>Pixel Art Generator</h1>
+            <div id="status">Ready</div>
+        </div>
+    </header>
+
+    <main class="container">
+        <!-- Left Column: Controls -->
+        <div class="controls-column" style="display: flex; flex-direction: column; gap: 1.5rem;">
+            
+            <!-- 1) Upload -->
+            <section class="card">
+                <div class="card-header">
+                    <h2>1) Upload Image</h2>
+                    <button class="toggle-button">▼</button>
+                </div>
+                <div class="card-content">
+                    <p class="description">Upload an image to get started.</p>
+                    <div class="form-group">
+                        <input type="file" id="file-input" accept="image/*">
+                    </div>
+                    <canvas id="inputCanvas"></canvas>
+                    <div id="input-resolution" class="image-info"></div>
+                </div>
+            </section>
+
+            <!-- 2) Palette -->
+            <section class="card">
+                <div class="card-header">
+                    <h2>2) Palette</h2>
+                    <button class="toggle-button">▼</button>
+                </div>
+                <div class="card-content">
+                    <p class="description">Enter hex colors separated by commas, spaces, or new lines. Use the button below to get all unique colors from your image.</p>
+                    <div class="form-group">
+                        <textarea id="palette-text" rows="3">#000000, #3c3c3c, #787878, #d2d2d2, #ffffff, #600018, #ed1c24, #ff7f27, #f6aa09, #f9dd3b, #fffabc, #0eb968, #13e67b, #87ff5e, #0c816e, #10aea6, #13e1be, #28509e, #4093e4, #60f7f2, #6b50f6, #99b1fb, #780c99, #aa38b9, #e09ff9, #cb007a, #ec1f80, #f38da9, #684634, #95682a, #f8b277</textarea>
+                    </div>
+                    <div id="palette-display"></div>
+                    <div class="button-group">
+                        <button id="add-color-btn" class="button button-outline">+ Color</button>
+                        <button id="clear-palette-btn" class="button button-outline">Clear</button>
+                        <button id="get-colors-btn" class="button button-outline">Get All Unique Colors</button>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- 3) Pre-Processing -->
+            <section class="card">
+                <div class="card-header">
+                    <h2>3) Pre-Processing</h2>
+                    <button class="toggle-button">▼</button>
+                </div>
+                <div class="card-content">
+                     <p class="description">Adjust the base image before it's pixelated.</p>
+                     <div style="display: grid; grid-template-columns: 1fr; gap: 1.5rem;">
+                        <div class="form-group">
+                            <label for="brightness" class="label-text">Brightness: <span id="brightness-value">0</span>%</label>
+                            <input type="range" id="brightness" min="-100" max="100" value="0">
+                        </div>
+                        <div class="form-group">
+                            <label for="contrast" class="label-text">Contrast: <span id="contrast-value">0</span>%</label>
+                            <input type="range" id="contrast" min="-100" max="100" value="0">
+                        </div>
+                        <div class="form-group">
+                            <label for="saturation" class="label-text">Saturation: <span id="saturation-value">0</span>%</label>
+                            <input type="range" id="saturation" min="-100" max="100" value="0">
+                        </div>
+                        <div class="form-group">
+                            <label for="hue" class="label-text">Hue: <span id="hue-value">0</span>°</label>
+                            <input type="range" id="hue" min="-180" max="180" value="0">
+                        </div>
+                     </div>
+                </div>
+            </section>
+
+            <!-- 4) Parameters -->
+            <section class="card">
+                <div class="card-header">
+                    <h2>4) Pixelation Parameters</h2>
+                    <button class="toggle-button">▼</button>
+                </div>
+                <div class="card-content">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+                        <div class="form-group" style="grid-column: 1 / -1;">
+                            <label for="pixel-size" class="label-text">Pixel size: <span id="pixel-size-value">6</span>x</label>
+                            <input type="range" id="pixel-size" min="2" max="32" value="6">
+                        </div>
+                        
+                        <hr style="grid-column: 1 / -1;">
+                        
+                        <div class="form-group" style="grid-column: 1 / -1;">
+                            <label for="color-quant-mode" class="label-text">Color Quantization Mode</label>
+                            <select id="color-quant-mode">
+                                <option value="nearest" selected>Nearest Color (default)</option>
+                                <option value="luminance">Luminance-based</option>
+                                <option value="prominent">Prominent Color</option>
+                                <option value="retro-outline">Retro Outline</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group" style="grid-column: 1 / -1;">
+                            <label for="prominence-threshold" class="label-text">Prominence Threshold: <span id="prominence-threshold-value">30</span></label>
+                            <input type="range" id="prominence-threshold" min="0" max="255" value="30">
+                        </div>
+
+                        <div class="form-group" style="grid-column: 1 / -1;">
+                            <label for="dither-algorithm" class="label-text">Dithering Algorithm</label>
+                             <select id="dither-algorithm">
+                                <option value="floyd">Floyd-Steinberg (Error Diffusion)</option>
+                                <option value="atkinson" selected>Atkinson (Error Diffusion)</option>
+                                <option value="bayer">Bayer (4x4 Ordered)</option>
+                                <option value="none">None</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group" style="grid-column: 1 / -1;">
+                            <label for="dither-strength" class="label-text">Dithering Strength: <span id="dither-strength-value">0.50</span></label>
+                            <input type="range" id="dither-strength" min="0" max="1" step="0.01" value="1">
+                        </div>
+                        
+                        <hr style="grid-column: 1 / -1;">
+
+                        <div class="form-group">
+                            <label for="edge-smoothness" class="label-text">Edge Smoothness: <span id="edge-smoothness-value">2</span></label>
+                            <input type="range" id="edge-smoothness" min="0" max="5" value="2">
+                        </div>
+                         <div class="form-group">
+                            <label for="edge-thickness" class="label-text">Edge Thickness: <span id="edge-thickness-value">1</span></label>
+                            <input type="range" id="edge-thickness" min="1" max="5" value="1">
+                        </div>
+                        <div class="form-group">
+                            <label for="edge-threshold" class="label-text">Edge Threshold: <span id="edge-threshold-value">40</span></label>
+                            <input type="range" id="edge-threshold" min="0" max="255" value="40">
+                        </div>
+                        <div class="form-group">
+                            <label for="edge-strength" class="label-text">Edge Strength: <span id="edge-strength-value">0.00</span></label>
+                            <input type="range" id="edge-strength" min="0" max="1" step="0.01" value="0">
+                        </div>
+                        <div class="color-group" style="grid-column: 1 / -1;">
+                            <label for="edge-color">Edge color:</label>
+                            <input type="color" id="edge-color" value="#000000">
+                            <span id="edge-color-value" class="color-value">#000000</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Actions -->
+            <section class="card" style="flex-direction: row; justify-content: space-between; padding: 1.5rem;">
+                 <button id="regenerate-btn" class="button button-primary">Regenerate</button>
+                 <button id="download-btn" class="button button-secondary">Download PNG</button>
+            </section>
+
+        </div>
+
+        <!-- Right Column: Result -->
+        <div class="result-column">
+            <div class="card" style="padding: 1.5rem;">
+                <h2>5) Result</h2>
+                <canvas id="outCanvas"></canvas>
+                <div id="output-resolution" class="image-info"></div>
+                <p class="description">Tip: Tweak pixel size and palette to control style. Use a small palette for more retro vibes.</p>
+            </div>
+            
+            <div class="card" style="margin-top: 1.5rem; padding: 1.5rem;">
+                <h2>How it works</h2>
+                <ol>
+                    <li>First, it applies the <em>pre-processing</em> adjustments (brightness, contrast, etc.) to your image.</li>
+                    <li>Then, it downscales your image by the chosen <em>Pixel size</em> (area average).</li>
+                    <li>Quantizes colors to your palette using the selected <em>Color Quantization Mode</em>, <em>Dithering Algorithm</em>, and a new <em>Dithering Strength</em> slider.</li>
+                    <li>Applies <em>Edge Smoothness</em> then detects edges via Sobel operator.</li>
+                    <li>Applies <em>Edge Thickness</em>, Threshold, and Strength to create the final outline.</li>
+                    <li>The final image is the size of the downscaled and processed image.</li>
+                </ol>
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        Built with ❤️ for pixel artists. No data leaves your browser.
+    </footer>
+
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- DOM Elements ---
+            const fileInput = document.getElementById('file-input');
+            const paletteText = document.getElementById('palette-text');
+            const paletteDisplay = document.getElementById('palette-display');
+            const addColorBtn = document.getElementById('add-color-btn');
+            const clearPaletteBtn = document.getElementById('clear-palette-btn');
+            const getColorsBtn = document.getElementById('get-colors-btn'); 
+            
+            const brightnessSlider = document.getElementById('brightness');
+            const contrastSlider = document.getElementById('contrast');
+            const saturationSlider = document.getElementById('saturation');
+            const hueSlider = document.getElementById('hue');
+            
+            const pixelSizeSlider = document.getElementById('pixel-size');
+            const colorQuantModeSelect = document.getElementById('color-quant-mode');
+            const prominenceThresholdSlider = document.getElementById('prominence-threshold');
+            const ditherAlgorithmSelect = document.getElementById('dither-algorithm');
+            const ditherStrengthSlider = document.getElementById('dither-strength');
+            const edgeSmoothnessSlider = document.getElementById('edge-smoothness');
+            const edgeThicknessSlider = document.getElementById('edge-thickness');
+            const edgeThresholdSlider = document.getElementById('edge-threshold');
+            const edgeStrengthSlider = document.getElementById('edge-strength');
+            const edgeColorPicker = document.getElementById('edge-color');
+
+            const brightnessValue = document.getElementById('brightness-value');
+            const contrastValue = document.getElementById('contrast-value');
+            const saturationValue = document.getElementById('saturation-value');
+            const hueValue = document.getElementById('hue-value');
+            const pixelSizeValue = document.getElementById('pixel-size-value');
+            const prominenceThresholdValue = document.getElementById('prominence-threshold-value');
+            const ditherStrengthValue = document.getElementById('dither-strength-value');
+            const edgeSmoothnessValue = document.getElementById('edge-smoothness-value');
+            const edgeThicknessValue = document.getElementById('edge-thickness-value');
+            const edgeThresholdValue = document.getElementById('edge-threshold-value');
+            const edgeStrengthValue = document.getElementById('edge-strength-value');
+            const edgeColorValue = document.getElementById('edge-color-value');
+
+            const regenerateBtn = document.getElementById('regenerate-btn');
+            const downloadBtn = document.getElementById('download-btn');
+            const statusEl = document.getElementById('status');
+            
+            const inputCanvas = document.getElementById('inputCanvas');
+            const outCanvas = document.getElementById('outCanvas');
+            const inputCtx = inputCanvas.getContext('2d', { willReadFrequently: true });
+            const outCtx = outCanvas.getContext('2d');
+            
+            // New resolution display elements
+            const inputResolutionEl = document.getElementById('input-resolution');
+            const outputResolutionEl = document.getElementById('output-resolution');
+
+
+            // --- State ---
+            let srcImage = null;
+            let currentPalette = [];
+
+            // --- Helper Functions ---
+            function hexToRgb(hex) {
+                const m = hex.trim().replace(/^#/, "");
+                if (m.length === 3) {
+                    const r = parseInt(m[0] + m[0], 16);
+                    const g = parseInt(m[1] + m[1], 16);
+                    const b = parseInt(m[2] + m[2], 16);
+                    return [r, g, b];
+                }
+                if (m.length === 6) {
+                    const r = parseInt(m.slice(0, 2), 16);
+                    const g = parseInt(m.slice(2, 4), 16);
+                    const b = parseInt(m.slice(4, 6), 16);
+                    return [r, g, b];
+                }
+                return null;
+            }
+
+            function rgbToHex(r, g, b) {
+                const toHex = (v) => v.toString(16).padStart(2, "0");
+                return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+            }
+            
+            function parsePalette(text) {
+                const parts = text.split(/[\s,\n]+/).map(t => t.trim()).filter(Boolean);
+                const out = [];
+                for (const p of parts) {
+                    const rgb = hexToRgb(p);
+                    if (rgb) out.push(rgb);
+                }
+                return out.length ? out : [[0, 0, 0], [255, 255, 255]];
+            }
+
+            // Function to calculate squared Euclidean distance between two colors
+            function dist2(a, b) {
+                const dr = a[0] - b[0];
+                const dg = a[1] - b[1];
+                const db = a[2] - b[2];
+                return dr * dr + dg * dg + db * db;
+            }
+            
+            // Calculates luminance of a color
+            function luminance(c) {
+                return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+            }
+            
+            // Finds the nearest color in a given palette
+            function nearestColor(c, pal, mode) {
+                if (!pal || pal.length === 0) return [c[0], c[1], c[2]];
+                let best = pal[0];
+                let bestD = Infinity;
+
+                for (const p of pal) {
+                    let d;
+                    if (mode === 'luminance') {
+                        d = Math.abs(luminance(c) - luminance(p));
+                    } else { // 'nearest' or 'prominent'
+                        d = Math.sqrt(dist2(c, p));
+                    }
+
+                    if (d < bestD) {
+                        bestD = d;
+                        best = p;
+                    }
+                }
+                return best;
+            }
+
+            // Simple box blur for pre-processing images
+            function boxBlur(img, radius) {
+                if (radius === 0) return img;
+                const { width, height, data } = img;
+                const out = new ImageData(width, height);
+                const temp = new Float32Array(data.length);
+                
+                for(let i=0; i<data.length; i++) temp[i] = data[i];
+
+                for (let y = 0; y < height; y++) {
+                    for (let x = 0; x < width; x++) {
+                        let r = 0, g = 0, b = 0, a = 0;
+                        let count = 0;
+                        for (let j = -radius; j <= radius; j++) {
+                            for (let i = -radius; i <= radius; i++) {
+                                const xx = Math.max(0, Math.min(width - 1, x + i));
+                                const yy = Math.max(0, Math.min(height - 1, y + j));
+                                const k = (yy * width + xx) * 4;
+                                r += temp[k];
+                                g += temp[k + 1];
+                                b += temp[k + 2];
+                                a += temp[k + 3];
+                                count++;
+                            }
+                        }
+                        const p = (y * width + x) * 4;
+                        out.data[p] = r / count;
+                        out.data[p + 1] = g / count;
+                        out.data[p + 2] = b / count;
+                        out.data[p + 3] = a / count;
+                    }
+                }
+                return out;
+            }
+            
+            // Dilates a grayscale edge map to increase thickness
+            function dilate(edgeMap, width, height, thickness) {
+                if (thickness <= 1) return edgeMap;
+                const out = new Uint8ClampedArray(edgeMap.length);
+                const radius = Math.floor(thickness / 2);
+                for (let y = 0; y < height; y++) {
+                    for (let x = 0; x < width; x++) {
+                        let maxVal = 0;
+                        for (let j = -radius; j <= radius; j++) {
+                            for (let i = -radius; i <= radius; i++) {
+                                const xx = Math.max(0, Math.min(width - 1, x + i));
+                                const yy = Math.max(0, Math.min(height - 1, y + j));
+                                maxVal = Math.max(maxVal, edgeMap[yy * width + xx]);
+                            }
+                        }
+                        out[y * width + x] = maxVal;
+                    }
+                }
+                return out;
+            }
+
+            // Calculates edge magnitude using the Sobel operator
+            function sobelMagnitude(img) {
+                const { width, height, data } = img;
+                const gray = new Float32Array(width * height);
+                for (let y = 0; y < height; y++) {
+                    for (let x = 0; x < width; x++) {
+                        const i = (y * width + x) * 4;
+                        const r = data[i], g = data[i + 1], b = data[i + 2];
+                        gray[y * width + x] = 0.299 * r + 0.587 * g + 0.114 * b;
+                    }
+                }
+                const out = new Uint8ClampedArray(width * height);
+                const kx = [-1, 0, 1, -2, 0, 2, -1, 0, 1];
+                const ky = [-1, -2, -1, 0, 0, 0, 1, 2, 1];
+                for (let y = 1; y < height - 1; y++) {
+                    for (let x = 1; x < width - 1; x++) {
+                        let gx = 0, gy = 0;
+                        let idx = 0;
+                        for (let j = -1; j <= 1; j++) {
+                            for (let i = -1; i <= 1; i++) {
+                                const v = gray[(y + j) * width + (x + i)];
+                                gx += v * kx[idx];
+                                gy += v * ky[idx];
+                                idx++;
+                            }
+                        }
+                        const mag = Math.min(255, Math.hypot(gx, gy));
+                        out[y * width + x] = mag;
+                    }
+                }
+                return out;
+            }
+
+            // Quantizes an image based on a chosen dithering algorithm and strength
+            function ditherImage(img, pal, ditherAlgorithm, quantMode, strength) {
+                const { width, height, data } = img;
+                const out = new ImageData(width, height);
+
+                // If strength is 0 or algorithm is none/bayer, just do a normal nearest-color quantization
+                if (strength === 0 || ditherAlgorithm === 'none' || ditherAlgorithm === 'bayer') {
+                    if (ditherAlgorithm === 'bayer') {
+                        const bayerMatrix = [
+                            [ 0,  8,  2, 10],
+                            [12,  4, 14,  6],
+                            [ 3, 11,  1,  9],
+                            [15,  7, 13,  5]
+                        ];
+                        const bayerSize = 4;
+                        for (let y = 0; y < height; y++) {
+                            for (let x = 0; x < width; x++) {
+                                const i = (y * width + x) * 4;
+                                const bayerVal = bayerMatrix[y % bayerSize][x % bayerSize];
+                                const factor = (bayerVal / 16) - 0.5;
+                                const r = Math.max(0, Math.min(255, data[i] + factor * 48));
+                                const g = Math.max(0, Math.min(255, data[i+1] + factor * 48));
+                                const b = Math.max(0, Math.min(255, data[i+2] + factor * 48));
+                                const nc = nearestColor([r, g, b], pal, quantMode);
+                                out.data[i] = nc[0];
+                                out.data[i+1] = nc[1];
+                                out.data[i+2] = nc[2];
+                                out.data[i+3] = data[i+3];
+                            }
+                        }
+                    } else { // none
+                        for (let i = 0; i < data.length; i += 4) {
+                            const nc = nearestColor([data[i], data[i+1], data[i+2]], pal, quantMode);
+                            out.data[i] = nc[0]; out.data[i+1] = nc[1]; out.data[i+2] = nc[2]; out.data[i+3] = data[i+3];
+                        }
+                    }
+                    return out;
+                }
+                
+                // Common error diffusion implementation for Floyd-Steinberg and Atkinson
+                const buf = new Float32Array(data.length);
+                for (let i = 0; i < data.length; i++) buf[i] = data[i];
+
+                for (let y = 0; y < height; y++) {
+                    for (let x = 0; x < width; x++) {
+                        const i = (y * width + x) * 4;
+                        const old = [buf[i], buf[i + 1], buf[i + 2]];
+                        const nc = nearestColor(old, pal, quantMode);
+                        out.data[i] = nc[0]; out.data[i+1] = nc[1]; out.data[i+2] = nc[2]; out.data[i+3] = data[i+3];
+                        
+                        // Calculate error and scale it by the strength
+                        const err = [old[0] - nc[0], old[1] - nc[1], old[2] - nc[2]];
+                        const scaledErr = [err[0] * strength, err[1] * strength, err[2] * strength];
+                        
+                        const distribute = (xx, yy, factor) => {
+                            if (xx < 0 || xx >= width || yy < 0 || yy >= height) return;
+                            const k = (yy * width + xx) * 4;
+                            buf[k] += scaledErr[0] * factor;
+                            buf[k + 1] += scaledErr[1] * factor;
+                            buf[k + 2] += scaledErr[2] * factor;
+                        };
+                        
+                        if (ditherAlgorithm === 'floyd') {
+                            distribute(x + 1, y, 7 / 16);
+                            distribute(x - 1, y + 1, 3 / 16);
+                            distribute(x, y + 1, 5 / 16);
+                            distribute(x + 1, y + 1, 1 / 16);
+                        } else if (ditherAlgorithm === 'atkinson') {
+                            distribute(x + 1, y, 1 / 8);
+                            distribute(x + 2, y, 1 / 8);
+                            distribute(x - 1, y + 1, 1 / 8);
+                            distribute(x, y + 1, 1 / 8);
+                            distribute(x + 1, y + 1, 1 / 8);
+                            distribute(x, y + 2, 1 / 8);
+                        }
+                    }
+                }
+                return out;
+            }
+
+            // Quantizes image by prioritizing "prominent" pixels
+            function quantizeProminent(img, pal, threshold) {
+                const { width, height, data } = img;
+                const out = new ImageData(width, height);
+                const prominenceScores = new Float32Array(width * height);
+                const kernelSize = 3;
+                const halfKernel = Math.floor(kernelSize / 2);
+
+                for (let y = 0; y < height; y++) {
+                    for (let x = 0; x < width; x++) {
+                        const i = (y * width + x) * 4;
+                        const pixelColor = [data[i], data[i+1], data[i+2]];
+                        
+                        // Calculate average neighbor color
+                        let avgR = 0, avgG = 0, avgB = 0;
+                        let count = 0;
+                        for (let j = -halfKernel; j <= halfKernel; j++) {
+                            for (let i = -halfKernel; i <= halfKernel; i++) {
+                                const nx = x + i, ny = y + j;
+                                if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                                    const k = (ny * width + nx) * 4;
+                                    avgR += data[k];
+                                    avgG += data[k+1];
+                                    avgB += data[k+2];
+                                    count++;
+                                }
+                            }
+                        }
+                        const avgColor = [avgR / count, avgG / count, avgB / count];
+                        
+                        // Check if the pixel is an outlier
+                        const prominence = Math.sqrt(dist2(pixelColor, avgColor));
+                        prominenceScores[y * width + x] = prominence;
+                    }
+                }
+
+                // Apply quantization based on prominence
+                for (let y = 0; y < height; y++) {
+                    for (let x = 0; x < width; x++) {
+                        const i = (y * width + x) * 4;
+                        const pixelColor = [data[i], data[i+1], data[i+2]];
+                        const score = prominenceScores[y * width + x];
+                        
+                        let quantizedColor;
+                        if (score >= threshold) {
+                            // High prominence: stick to original pixel color
+                            quantizedColor = nearestColor(pixelColor, pal, 'nearest');
+                        } else {
+                            // Low prominence: nudge towards the nearest color
+                            const nearest = nearestColor(pixelColor, pal, 'nearest');
+                            const nudgeFactor = (threshold - score) / threshold;
+                            quantizedColor = [
+                                Math.round(pixelColor[0] * (1 - nudgeFactor) + nearest[0] * nudgeFactor),
+                                Math.round(pixelColor[1] * (1 - nudgeFactor) + nearest[1] * nudgeFactor),
+                                Math.round(pixelColor[2] * (1 - nudgeFactor) + nearest[2] * nudgeFactor),
+                            ];
+                            quantizedColor = nearestColor(quantizedColor, pal, 'nearest');
+                        }
+                        
+                        out.data[i] = quantizedColor[0];
+                        out.data[i+1] = quantizedColor[1];
+                        out.data[i+2] = quantizedColor[2];
+                        out.data[i+3] = data[i+3];
+                    }
+                }
+
+                return out;
+            }
+
+
+            function drawImageToCanvas(imgEl, canvas) {
+                const ctx = canvas.getContext("2d");
+                if (!ctx) return;
+                canvas.width = imgEl.naturalWidth;
+                canvas.height = imgEl.naturalHeight;
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(imgEl, 0, 0);
+            }
+
+            function downscale(canvasIn, factor) {
+                const small = document.createElement("canvas");
+                small.width = Math.max(1, Math.floor(canvasIn.width / factor));
+                small.height = Math.max(1, Math.floor(canvasIn.height / factor));
+                const sctx = small.getContext("2d");
+                sctx.imageSmoothingEnabled = true;
+                sctx.clearRect(0, 0, small.width, small.height);
+                sctx.drawImage(canvasIn, 0, 0, small.width, small.height);
+                return small;
+            }
+
+            // Overlays a grayscale edge map on top of a base image
+            function overlayEdges(base, edges, pal, threshold, strength, edgeHex) {
+                const edgeRgb = hexToRgb(edgeHex) || [0, 0, 0];
+                const out = new ImageData(base.width, base.height);
+                for (let i = 0; i < base.data.length; i += 4) {
+                    const idx = i / 4;
+                    const mag = edges[idx];
+                    const [br, bg, bb, ba] = [base.data[i], base.data[i+1], base.data[i+2], base.data[i+3]];
+                    if (mag >= threshold) {
+                        const r = Math.round((1 - strength) * br + strength * edgeRgb[0]);
+                        const g = Math.round((1 - strength) * bg + strength * edgeRgb[1]);
+                        const b = Math.round((1 - strength) * bb + strength * edgeRgb[2]);
+                        const n = nearestColor([r, g, b], pal, 'nearest');
+                        out.data[i] = n[0]; out.data[i + 1] = n[1]; out.data[i + 2] = n[2]; out.data[i + 3] = ba;
+                    } else {
+                        out.data[i] = br; out.data[i + 1] = bg; out.data[i + 2] = bb; out.data[i + 3] = ba;
+                    }
+                }
+                return out;
+            }
+
+            // Function for Retro Outline mode
+            function retroOutlineMode(img, pal, ditherAlgorithm, ditherStrength, edgeThreshold, edgeStrength, edgeColor) {
+                const { width, height, data } = img;
+                
+                // First pass: create a heavily quantized version of the image
+                const blockImg = new ImageData(width, height);
+                for (let y = 0; y < height; y++) {
+                    for (let x = 0; x < width; x++) {
+                        const i = (y * width + x) * 4;
+                        const pixel = [data[i], data[i+1], data[i+2]];
+                        const blockColor = nearestColor(pixel, pal, 'nearest');
+                        blockImg.data[i] = blockColor[0];
+                        blockImg.data[i+1] = blockColor[1];
+                        blockImg.data[i+2] = blockColor[2];
+                        blockImg.data[i+3] = data[i+3];
+                    }
+                }
+                
+                // Add dithering to the quantized image for texture
+                const ditheredBlocks = ditherImage(blockImg, pal, ditherAlgorithm, 'nearest', ditherStrength);
+
+                // Second pass: detect edges on the quantized image
+                // This is the key change to get clean, jagged outlines
+                const edges = sobelMagnitude(ditheredBlocks);
+
+                // Third pass: Overlay the edges on the dithered image
+                const finalImage = overlayEdges(ditheredBlocks, edges, pal, edgeThreshold, edgeStrength, edgeColor);
+                
+                return finalImage;
+            }
+            
+            // --- New Pre-Processing Functions ---
+            // Helper function to convert RGB to HSL
+            function rgbToHsl(r, g, b) {
+                r /= 255, g /= 255, b /= 255;
+                const max = Math.max(r, g, b), min = Math.min(r, g, b);
+                let h, s, l = (max + min) / 2;
+
+                if (max === min) {
+                    h = s = 0; // achromatic
+                } else {
+                    const d = max - min;
+                    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+                    switch (max) {
+                        case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+                        case g: h = (b - r) / d + 2; break;
+                        case b: h = (r - g) / d + 4; break;
+                    }
+                    h /= 6;
+                }
+                return [h, s, l];
+            }
+
+            // Helper function to convert HSL to RGB
+            function hslToRgb(h, s, l) {
+                let r, g, b;
+                if (s === 0) {
+                    r = g = b = l; // achromatic
+                } else {
+                    const hue2rgb = (p, q, t) => {
+                        if (t < 0) t += 1;
+                        if (t > 1) t -= 1;
+                        if (t < 1/6) return p + (q - p) * 6 * t;
+                        if (t < 1/2) return q;
+                        if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+                        return p;
+                    };
+                    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+                    const p = 2 * l - q;
+                    r = hue2rgb(p, q, h + 1/3);
+                    g = hue2rgb(p, q, h);
+                    b = hue2rgb(p, q, h - 1/3);
+                }
+                return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+            }
+            
+            // Apply image adjustments (brightness, contrast, saturation, hue)
+            function adjustImage(imgData, brightness, contrast, saturation, hue) {
+                const data = imgData.data;
+                const out = new ImageData(imgData.width, imgData.height);
+                const outData = out.data;
+
+                const b = brightness / 100;
+                const c = (contrast + 100) / 100;
+                const s = (saturation + 100) / 100;
+                const h = hue / 360;
+
+                for (let i = 0; i < data.length; i += 4) {
+                    let r = data[i];
+                    let g = data[i + 1];
+                    let b_val = data[i + 2];
+                    
+                    // Apply brightness
+                    r = r + 255 * b;
+                    g = g + 255 * b;
+                    b_val = b_val + 255 * b;
+
+                    // Apply contrast
+                    r = (r - 128) * c + 128;
+                    g = (g - 128) * c + 128;
+                    b_val = (b_val - 128) * c + 128;
+
+                    // Apply saturation and hue in HSL space
+                    if (s !== 1 || h !== 0) {
+                        const [h_orig, s_orig, l_orig] = rgbToHsl(r, g, b_val);
+                        const s_new = Math.max(0, Math.min(1, s_orig * s));
+                        const h_new = (h_orig + h + 1) % 1;
+                        [r, g, b_val] = hslToRgb(h_new, s_new, l_orig);
+                    }
+                    
+                    outData[i] = Math.max(0, Math.min(255, r));
+                    outData[i + 1] = Math.max(0, Math.min(255, g));
+                    outData[i + 2] = Math.max(0, Math.min(255, b_val));
+                    outData[i + 3] = data[i + 3]; // Alpha channel
+                }
+                return out;
+            }
+
+            /**
+             * Extracts all unique colors from an image.
+             * @param {ImageData} imgData The image data to analyze.
+             * @returns {string[]} An array of unique hex codes.
+             */
+            function getAllUniqueColors(imgData) {
+                const { data } = imgData;
+                const uniqueColors = new Set();
+                
+                for (let i = 0; i < data.length; i += 4) {
+                    const r = data[i];
+                    const g = data[i + 1];
+                    const b = data[i + 2];
+                    const hex = rgbToHex(r, g, b);
+                    uniqueColors.add(hex);
+                }
+                
+                return Array.from(uniqueColors);
+            }
+
+            /**
+             * Updates the resolution display for a given canvas.
+             * @param {HTMLCanvasElement} canvas The canvas element.
+             * @param {HTMLElement} element The HTML element to update.
+             */
+            function updateResolutionDisplay(canvas, element) {
+                element.textContent = `${canvas.width} x ${canvas.height} pixels`;
+            }
+
+            // --- Core Logic ---
+            function process() {
+                if (!srcImage) {
+                    statusEl.textContent = "Please upload an image first.";
+                    return;
+                }
+
+                statusEl.textContent = "Processing…";
+                
+                setTimeout(() => {
+                    const pixelSize = parseInt(pixelSizeSlider.value);
+                    const colorQuantMode = colorQuantModeSelect.value;
+                    const prominenceThreshold = parseInt(prominenceThresholdSlider.value);
+                    const ditherAlgorithm = ditherAlgorithmSelect.value;
+                    const ditherStrength = parseFloat(ditherStrengthSlider.value);
+                    const edgeSmoothness = parseInt(edgeSmoothnessSlider.value);
+                    const edgeThickness = parseInt(edgeThicknessSlider.value);
+                    const edgeThreshold = parseInt(edgeThresholdSlider.value);
+                    const edgeStrength = parseFloat(edgeStrengthSlider.value);
+                    const edgeColor = edgeColorPicker.value;
+                    const pal = currentPalette.length ? currentPalette : parsePalette(paletteText.value);
+
+                    const brightness = parseInt(brightnessSlider.value);
+                    const contrast = parseInt(contrastSlider.value);
+                    const saturation = parseInt(saturationSlider.value);
+                    const hue = parseInt(hueSlider.value);
+                    
+                    // Get a fresh copy of the source image data
+                    const tempCanvas = document.createElement('canvas');
+                    tempCanvas.width = srcImage.naturalWidth;
+                    tempCanvas.height = srcImage.naturalHeight;
+                    const tempCtx = tempCanvas.getContext('2d');
+                    tempCtx.drawImage(srcImage, 0, 0);
+                    let processedImg = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+
+                    // 1) Pre-processing
+                    if (brightness !== 0 || contrast !== 0 || saturation !== 0 || hue !== 0) {
+                        processedImg = adjustImage(processedImg, brightness, contrast, saturation, hue);
+                    }
+                    
+                    // Create a new canvas to hold the pre-processed image
+                    const prepCanvas = document.createElement('canvas');
+                    prepCanvas.width = processedImg.width;
+                    prepCanvas.height = processedImg.height;
+                    const prepCtx = prepCanvas.getContext('2d');
+                    prepCtx.putImageData(processedImg, 0, 0);
+
+                    // 2) Downscale
+                    const small = downscale(prepCanvas, pixelSize);
+                    const sctx = small.getContext("2d");
+                    const smallImg = sctx.getImageData(0, 0, small.width, small.height);
+                    
+                    let finalImage;
+                    if (colorQuantMode === 'retro-outline') {
+                        finalImage = retroOutlineMode(smallImg, pal, ditherAlgorithm, ditherStrength, edgeThreshold, edgeStrength, edgeColor);
+                    } else {
+                        // Old processing pipeline for other modes
+                        // 3) Quantize
+                        let quantizedImg;
+                        if (colorQuantMode === 'prominent') {
+                            quantizedImg = quantizeProminent(smallImg, pal, prominenceThreshold);
+                            quantizedImg = ditherImage(quantizedImg, pal, ditherAlgorithm, 'nearest', ditherStrength);
+                        } else {
+                            quantizedImg = ditherImage(smallImg, pal, ditherAlgorithm, colorQuantMode, ditherStrength);
+                        }
+                        
+                        // 4) Edges
+                        const blurredForEdges = boxBlur(smallImg, edgeSmoothness);
+                        let edges = sobelMagnitude(blurredForEdges);
+                        edges = dilate(edges, small.width, small.height, edgeThickness);
+                        finalImage = overlayEdges(quantizedImg, edges, pal, edgeThreshold, edgeStrength, edgeColor);
+                    }
+                    
+                    // 5) Draw to out canvas
+                    outCanvas.width = finalImage.width;
+                    outCanvas.height = finalImage.height;
+                    outCtx.imageSmoothingEnabled = false;
+                    outCtx.clearRect(0, 0, outCanvas.width, outCanvas.height);
+                    outCtx.putImageData(finalImage, 0, 0);
+                    
+                    // Update the output resolution display
+                    updateResolutionDisplay(outCanvas, outputResolutionEl);
+
+                    statusEl.textContent = "Done";
+                }, 10);
+            }
+
+            // --- UI & Event Handlers ---
+            function updatePaletteUI() {
+                currentPalette = parsePalette(paletteText.value);
+                paletteDisplay.innerHTML = '';
+                currentPalette.forEach(c => {
+                    const hex = rgbToHex(c[0], c[1], c[2]);
+                    const colorEl = document.createElement('div');
+                    colorEl.className = 'palette-color';
+                    colorEl.innerHTML = `
+                        <div class="palette-swatch" style="background-color: ${hex}"></div>
+                        <span class="palette-hex">${hex}</span>
+                    `;
+                    paletteDisplay.appendChild(colorEl);
+                });
+            }
+
+            function onFile(e) {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = () => {
+                    srcImage = new Image();
+                    srcImage.onload = () => {
+                        drawImageToCanvas(srcImage, inputCanvas);
+                        // Update the input resolution display after image is loaded
+                        updateResolutionDisplay(inputCanvas, inputResolutionEl);
+                        process();
+                    };
+                    srcImage.src = reader.result;
+                };
+                reader.readAsDataURL(file);
+            }
+            
+            function download() {
+                if (outCanvas.width === 0) return;
+                const url = outCanvas.toDataURL("image/png");
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = "pixelart.png";
+                a.click();
+            }
+
+            function getColorsFromImage() {
+                if (!srcImage) {
+                    statusEl.textContent = "Please upload an image first.";
+                    return;
+                }
+                
+                statusEl.textContent = "Extracting all unique colors...";
+                
+                setTimeout(() => {
+                    const tempCanvas = document.createElement('canvas');
+                    tempCanvas.width = srcImage.naturalWidth;
+                    tempCanvas.height = srcImage.naturalHeight;
+                    const tempCtx = tempCanvas.getContext('2d');
+                    tempCtx.drawImage(srcImage, 0, 0);
+                    const imgData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+                    
+                    const newPalette = getAllUniqueColors(imgData);
+                    paletteText.value = newPalette.join(', ');
+                    updatePaletteUI();
+                    process();
+                    statusEl.textContent = "All unique colors extracted!";
+                }, 10);
+            }
+
+            // --- Collapsible Logic ---
+            const headers = document.querySelectorAll('.card-header');
+            headers.forEach(header => {
+                header.addEventListener('click', () => {
+                    const content = header.nextElementSibling; 
+                    if (content) {
+                       content.classList.toggle('collapsed');
+                       header.classList.toggle('collapsed');
+                    }
+                });
+            });
+
+            // --- Initial Setup ---
+            fileInput.addEventListener('change', onFile);
+            paletteText.addEventListener('input', () => {
+                updatePaletteUI();
+                process();
+            });
+            addColorBtn.addEventListener('click', () => {
+                paletteText.value = (paletteText.value ? paletteText.value + ", #000000" : "#000000");
+                updatePaletteUI();
+                process();
+            });
+            clearPaletteBtn.addEventListener('click', () => {
+                paletteText.value = "";
+                updatePaletteUI();
+                process();
+            });
+            getColorsBtn.addEventListener('click', getColorsFromImage);
+            
+            regenerateBtn.addEventListener('click', process);
+            downloadBtn.addEventListener('click', download);
+
+            // Parameter listeners
+            const sliders = [
+                { el: brightnessSlider, valEl: brightnessValue, unit: '%' },
+                { el: contrastSlider, valEl: contrastValue, unit: '%' },
+                { el: saturationSlider, valEl: saturationValue, unit: '%' },
+                { el: hueSlider, valEl: hueValue, unit: '°' },
+                { el: pixelSizeSlider, valEl: pixelSizeValue, unit: 'x' },
+                { el: prominenceThresholdSlider, valEl: prominenceThresholdValue },
+                { el: ditherStrengthSlider, valEl: ditherStrengthValue, fixed: 2 },
+                { el: edgeSmoothnessSlider, valEl: edgeSmoothnessValue },
+                { el: edgeThicknessSlider, valEl: edgeThicknessValue },
+                { el: edgeThresholdSlider, valEl: edgeThresholdValue },
+                { el: edgeStrengthSlider, valEl: edgeStrengthValue, fixed: 2 },
+            ];
+
+            // Initial sync of slider values with their labels
+            sliders.forEach(({el, valEl, fixed, unit = ''}) => {
+                const value = el.value;
+                valEl.textContent = (fixed ? parseFloat(value).toFixed(fixed) : value) + unit;
+                el.addEventListener('input', e => {
+                    valEl.textContent = (fixed ? parseFloat(e.target.value).toFixed(fixed) : e.target.value) + unit;
+                });
+                el.addEventListener('change', process);
+            });
+            
+            edgeColorPicker.addEventListener('input', (e) => {
+                edgeColorValue.textContent = e.target.value;
+            });
+            edgeColorPicker.addEventListener('change', process);
+
+            ditherAlgorithmSelect.addEventListener('change', process);
+            colorQuantModeSelect.addEventListener('change', process);
+
+            // Initial UI update and resolution display
+            updatePaletteUI();
+            updateResolutionDisplay(inputCanvas, inputResolutionEl);
+            updateResolutionDisplay(outCanvas, outputResolutionEl);
+        });
+    </script>
+</body>
+</html>
